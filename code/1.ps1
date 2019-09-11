@@ -3,7 +3,7 @@ $settings = Get-Content -LiteralPath "$PSScriptRoot\..\config\settings.json" | C
 function Get-ODBC-Data {
     param([string]$query = $(throw 'query is required.'))
     $conn = New-Object System.Data.Odbc.OdbcConnection
-    $connStr = "Driver=Firebird/Interbase(r) driver;Server=localhost;Port=3050;Database=C:\Users\dimka\Desktop\B52.GDB;Uid=$($settings.userName);Pwd=$($settings.password);CHARSET=UTF8"
+    $connStr = "Driver=Firebird/Interbase(r) driver;Server=localhost;Port=3050;Database=$($settings.dbPath);Uid=$($settings.userName);Pwd=$($settings.password);CHARSET=UTF8"
     $conn.ConnectionString = $connStr
     $conn.open
     $cmd = new-object System.Data.Odbc.OdbcCommand($query, $conn)
@@ -15,7 +15,18 @@ function Get-ODBC-Data {
     $conn.close()
 }
     
-$query = @"
+function New-BirthdaysExcel {
+    param(
+        $Date
+    )
+    $finalDate = $Date;
+    if ($null -eq $finalDate) {
+        $finalDate = 'NULL';
+    } else {
+        $finalDate = "'$finalDate'";
+    }
+
+    $query = @"
 SELECT
 datediff(YEAR,
 	birthday,
@@ -40,7 +51,7 @@ WHERE
 	s.Birthday IS NOT NULL
 	AND CONTACTS IS NOT NULL) a
 WHERE
-this_year_birthday =  '2019-09-12' 
+this_year_birthday = COALESCE($finalDate, CAST(CURRENT_TIMESTAMP AS DATE))
 GROUP BY datediff(YEAR,
 	birthday,
 	THIS_YEAR_BIRTHDAY) ,
@@ -51,64 +62,64 @@ ORDER BY
 1 
 "@
 
-$smsTemplate = Get-Content -LiteralPath "$PSScriptRoot\..\template\birthday_template.txt" -Encoding UTF8
+    $smsTemplate = Get-Content -LiteralPath "$PSScriptRoot\..\template\birthday_template.txt" -Encoding UTF8
 
-$file = "$PSScriptRoot\..\Birthdays.xlsx";
-if (Test-Path $file ) {
-    Remove-Item $file;
-}
-
-[OfficeOpenXml.ExcelPackage]$excel = New-OOXMLPackage -Author "DK" -Title "Birthdays";
-[OfficeOpenXml.ExcelWorkbook]$book = $excel | Get-OOXMLWorkbook;
-
-$excel | Add-OOXMLWorksheet -WorkSheetName "Birthdays" #-AutofilterRange "A2:E2"
-$sheet = $book | Select-OOXMLWorkSheet -WorkSheetNumber 1;
-
-$sheet | Set-OOXMLRangeValue -Row 1 -Col 1 -Value "Age" | Out-Null;
-$sheet | Set-OOXMLRangeValue -Row 1 -Col 2 -Value "Birthday" | Out-Null;
-$sheet | Set-OOXMLRangeValue -Row 1 -Col 3 -Value "Card" | Out-Null;
-$sheet | Set-OOXMLRangeValue -Row 1 -Col 4 -Value "Phone" | Out-Null;
-$sheet | Set-OOXMLRangeValue -Row 1 -Col 5 -Value "Phone2" | Out-Null;
-$sheet | Set-OOXMLRangeValue -Row 1 -Col 6 -Value "Name" | Out-Null;
-$sheet | Set-OOXMLRangeValue -Row 1 -Col 7 -Value "Text" | Out-Null;
-
-$i = 2;
-$result = Get-ODBC-Data -query $query
-
-foreach ($row in $result) {
-    if (-not($null -eq $row.BIRTHDAY)) {
-        $dateStr = $row.BIRTHDAY.ToString("dd.MM.yyyy");
-        $phones = $row.CONTACTS.Trim().Split(' ', 2);
-        if ($row.CONTACTS.Replace(' ', '').Length -lt 15) {
-            $phones[0] = $row.CONTACTS.Replace(' ', '');
-            if (-not($null -eq $phones[1])) { $phones[1] = '' };
-        }
-		
-        $names = $row.KLIENT.Split(' ');
-
-        if ($null -eq $names[1]) {
-            $firstName = $names[0];
-        }
-        else {
-            $lastName = $names[0];
-            $firstName = $names[1];
-            $middleName = $names[2];
-            ;
-        }
-
-		$fullName = "$firstName $middleName".Trim();
-
-        $sheet | Set-OOXMLRangeValue -Row $i -Col 1  -Value $row.years | Out-Null;
-        $sheet | Set-OOXMLRangeValue -Row $i -Col 2  -Value $dateStr | Out-Null;
-        $sheet | Set-OOXMLRangeValue -Row $i -Col 3  -Value $row.CARD_NUM | Out-Null;
-        $sheet | Set-OOXMLRangeValue -Row $i -Col 4  -Value $phones[0].Trim().Replace(' ', '') | Out-Null;
-        if ($phones.Count -eq 2) {
-            $sheet | Set-OOXMLRangeValue -Row $i -Col 5  -Value $phones[1].Trim().Replace(' ', '') | Out-Null;
-        }
-        $sheet | Set-OOXMLRangeValue -Row $i -Col 6  -Value $row.KLIENT | Out-Null;
-        $sheet | Set-OOXMLRangeValue -Row $i -Col 7  -Value $smsTemplate.Replace('NNNN', $fullName) | Out-Null;
-        $i++;
+    $file = "$PSScriptRoot\..\Birthdays.xlsx";
+    if (Test-Path $file ) {
+        Remove-Item $file;
     }
-} 
 
-$excel | Save-OOXMLPackage -FileFullPath $file -Dispose
+    [OfficeOpenXml.ExcelPackage]$excel = New-OOXMLPackage -Author "DK" -Title "Birthdays";
+    [OfficeOpenXml.ExcelWorkbook]$book = $excel | Get-OOXMLWorkbook;
+
+    $excel | Add-OOXMLWorksheet -WorkSheetName "Birthdays" #-AutofilterRange "A2:E2"
+    $sheet = $book | Select-OOXMLWorkSheet -WorkSheetNumber 1;
+
+    $sheet | Set-OOXMLRangeValue -Row 1 -Col 1 -Value "Age" | Out-Null;
+    $sheet | Set-OOXMLRangeValue -Row 1 -Col 2 -Value "Birthday" | Out-Null;
+    $sheet | Set-OOXMLRangeValue -Row 1 -Col 3 -Value "Card" | Out-Null;
+    $sheet | Set-OOXMLRangeValue -Row 1 -Col 4 -Value "Phone" | Out-Null;
+    $sheet | Set-OOXMLRangeValue -Row 1 -Col 5 -Value "Phone2" | Out-Null;
+    $sheet | Set-OOXMLRangeValue -Row 1 -Col 6 -Value "Name" | Out-Null;
+    $sheet | Set-OOXMLRangeValue -Row 1 -Col 7 -Value "Text" | Out-Null;
+
+    $i = 2;
+    $result = Get-ODBC-Data -query $query
+
+    foreach ($row in $result) {
+        if (-not($null -eq $row.BIRTHDAY)) {
+            $dateStr = $row.BIRTHDAY.ToString("dd.MM.yyyy");
+            $phones = $row.CONTACTS.Trim().Split(' ', 2);
+            if ($row.CONTACTS.Replace(' ', '').Length -lt 15) {
+                $phones[0] = $row.CONTACTS.Replace(' ', '');
+                if (-not($null -eq $phones[1])) { $phones[1] = '' };
+            }
+		
+            $names = $row.KLIENT.Split(' ');
+
+            if ($null -eq $names[1]) {
+                $firstName = $names[0];
+            }
+            else {
+                $firstName = $names[1];
+                $middleName = $names[2];
+                ;
+            }
+
+            $fullName = "$firstName $middleName".Trim();
+
+            $sheet | Set-OOXMLRangeValue -Row $i -Col 1  -Value $row.years | Out-Null;
+            $sheet | Set-OOXMLRangeValue -Row $i -Col 2  -Value $dateStr | Out-Null;
+            $sheet | Set-OOXMLRangeValue -Row $i -Col 3  -Value $row.CARD_NUM | Out-Null;
+            $sheet | Set-OOXMLRangeValue -Row $i -Col 4  -Value $phones[0].Trim().Replace(' ', '') | Out-Null;
+            if ($phones.Count -eq 2) {
+                $sheet | Set-OOXMLRangeValue -Row $i -Col 5  -Value $phones[1].Trim().Replace(' ', '') | Out-Null;
+            }
+            $sheet | Set-OOXMLRangeValue -Row $i -Col 6  -Value $row.KLIENT | Out-Null;
+            $sheet | Set-OOXMLRangeValue -Row $i -Col 7  -Value $smsTemplate.Replace('NNNN', $fullName) | Out-Null;
+            $i++;
+        }
+    } 
+
+    $excel | Save-OOXMLPackage -FileFullPath $file -Dispose
+}
